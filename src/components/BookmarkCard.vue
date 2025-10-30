@@ -39,10 +39,8 @@
       <h4 class="card-title">{{ bookmark.name }}</h4>
     </div>
     
-    <p class="card-url">{{ displayUrl }}</p>
-    
-    <p v-if="bookmark.description" class="card-description">
-      {{ bookmark.description }}
+    <p class="card-description">
+      {{ bookmark.description || displayUrl }}
     </p>
     
     <div v-if="bookmark.is_private" class="private-badge">

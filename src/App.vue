@@ -3,7 +3,19 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-content">
-        <h1 class="app-title">{{ customTitle }}</h1>
+        <div class="header-left">
+          <button 
+            v-if="categories.length > 0"
+            class="sidebar-toggle-btn" 
+            @click="sidebarOpen = !sidebarOpen"
+            title="切换分类侧边栏"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M3 12h18M3 6h18M3 18h18"/>
+            </svg>
+          </button>
+          <h1 class="app-title">{{ customTitle }}</h1>
+        </div>
         
         <!-- 未登录状态：直接显示登录按钮 -->
         <button 
@@ -62,8 +74,6 @@
         <SearchBar />
       </div>
       
-      <CategoryButtons />
-      
       <!-- Edit Mode Toolbar -->
       <EditModeToolbar 
         :is-edit-mode="isEditMode"
@@ -84,8 +94,7 @@
       />
     </header>
     
-    <!-- Main Content -->
-    <main class="app-main">
+    <main class="page-main">
       <div v-if="loading" class="loading">
         <div class="spinner"></div>
         <p>加载中...</p>
@@ -133,25 +142,54 @@
         </button>
       </div>
       
-      <div v-else class="categories-container">
-        <CategorySection
-          v-for="category in categories"
-          v-show="!hideEmptyCategories || (bookmarksByCategory[category.id]?.length > 0)"
-          :key="category.id"
-          :category="category"
-          :bookmarks="bookmarksByCategory[category.id] || []"
+      <div v-else class="main-layout">
+        <!-- Sidebar Backdrop (Mobile) -->
+        <div 
+          v-if="sidebarOpen && !isDesktop" 
+          class="sidebar-backdrop" 
+          @click="sidebarOpen = false"
+        ></div>
+        
+        <!-- Category Sidebar -->
+        <CategorySidebar
+          :categories="categories"
+          :bookmarkCountByCategory="bookmarkCountByCategory"
+          :selectedCategoryId="selectedCategoryId"
+          :selectedCategoryIds="selectedCategoryIds"
+          :is-open="sidebarOpen"
+          :is-desktop="isDesktop"
           :is-edit-mode="isEditMode"
           :is-batch-mode="isBatchMode"
-          :selected-ids="selectedIds"
-          :selected-category-ids="selectedCategoryIds"
+          @toggle="sidebarOpen = !sidebarOpen"
+          @select="handleSelectCategory"
+          @toggle-category-selection="handleToggleCategorySelection"
           @edit-category="handleEditCategory"
           @delete-category="handleDeleteCategory"
-          @edit-bookmark="handleEditBookmark"
-          @delete-bookmark="handleDeleteBookmark"
-          @reorder-bookmarks="handleReorderBookmarks"
-          @toggle-selection="handleToggleSelection"
-          @toggle-category-selection="handleToggleCategorySelection"
         />
+        
+        <!-- Bookmarks Content -->
+        <div class="bookmarks-area">
+          <CategorySection
+            v-if="activeCategory"
+            :key="activeCategory.id"
+            :category="activeCategory"
+            :bookmarks="displayedBookmarks"
+            :is-edit-mode="isEditMode"
+            :is-batch-mode="isBatchMode"
+            :selected-ids="selectedIds"
+            :selected-category-ids="selectedCategoryIds"
+            @edit-category="handleEditCategory"
+            @delete-category="handleDeleteCategory"
+            @edit-bookmark="handleEditBookmark"
+            @delete-bookmark="handleDeleteBookmark"
+            @reorder-bookmarks="handleReorderBookmarks"
+            @toggle-selection="handleToggleSelection"
+            @toggle-category-selection="handleToggleCategorySelection"
+          />
+          <div v-else class="empty-state">
+            暂无可用分类，请先创建分类
+          </div>
+        </div>
       </div>
     </main>
     
@@ -214,7 +252,7 @@ import { useTheme } from './composables/useTheme'
 import { useSettings } from './composables/useSettings'
 import { useToast } from './composables/useToast'
 import SearchBar from './components/SearchBar.vue'
-import CategoryButtons from './components/CategoryButtons.vue'
+import CategorySidebar from './components/CategorySidebar.vue'
 import CategorySection from './components/CategorySection.vue'
 import FloatingButtons from './components/FloatingButtons.vue'
 import EditModeToolbar from './components/EditModeToolbar.vue'
@@ -279,8 +317,63 @@ const batchOperationDialog = ref(null)
 const settingsPage = ref(null)
 const toast = ref(null)
 
+const isDesktop = ref(typeof window !== 'undefined' ? window.innerWidth >= 1025 : true)
+const sidebarOpen = ref(isDesktop.value)
+const selectedCategoryId = ref(null)
+
 const selectedIds = computed(() => getSelectedIds())
 const selectedCategoryIds = computed(() => getSelectedCategoryIds())
+
+const bookmarkCountByCategory = computed(() => {
+  const counts = {}
+  categories.value.forEach(category => {
+    counts[category.id] = bookmarksByCategory.value[category.id]?.length || 0
+  })
+  return counts
+})
+
+const activeCategory = computed(() => {
+  if (!categories.value.length) {
+    return null
+  }
+  const current = categories.value.find(category => category.id === selectedCategoryId.value)
+  return current || categories.value[0]
+})
+
+const displayedBookmarks = computed(() => {
+  const category = activeCategory.value
+  if (!category) return []
+  return bookmarksByCategory.value[category.id] || []
+})
+
+watch(categories, (newCategories) => {
+  if (!newCategories.length) {
+    selectedCategoryId.value = null
+    return
+  }
+  if (!selectedCategoryId.value || !newCategories.some(category => category.id === selectedCategoryId.value)) {
+    selectedCategoryId.value = newCategories[0].id
+  }
+}, { immediate: true })
+
+const handleSelectCategory = (categoryId) => {
+  selectedCategoryId.value = categoryId
+  if (!isDesktop.value) {
+    sidebarOpen.value = false
+  }
+}
+
+const handleResize = () => {
+  if (typeof window === 'undefined') return
+  const wasDesktop = isDesktop.value
+  isDesktop.value = window.innerWidth >= 1025
+  
+  if (!wasDesktop && isDesktop.value) {
+    sidebarOpen.value = true
+  } else if (wasDesktop && !isDesktop.value) {
+    sidebarOpen.value = false
+  }
+}
 
 const handleSettingsTabChange = (tab) => {
   setActiveSettingsTab(tab)
@@ -332,9 +425,14 @@ onMounted(async () => {
   }
   document.addEventListener('click', handleClickOutside)
   
+  // 监听窗口大小变化
+  window.addEventListener('resize', handleResize)
+  handleResize()
+  
   // 清理事件监听
   onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside)
+    window.removeEventListener('resize', handleResize)
   })
 })
 
