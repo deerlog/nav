@@ -154,6 +154,7 @@
         <CategorySidebar
           :categories="categories"
           :bookmarkCountByCategory="bookmarkCountByCategory"
+          :totalBookmarkCount="totalBookmarkCount"
           :selectedCategoryId="selectedCategoryId"
           :selectedCategoryIds="selectedCategoryIds"
           :is-open="sidebarOpen"
@@ -169,23 +170,25 @@
         
         <!-- Bookmarks Content -->
         <div class="bookmarks-area">
-          <CategorySection
-            v-if="activeCategory"
-            :key="activeCategory.id"
-            :category="activeCategory"
-            :bookmarks="displayedBookmarks"
-            :is-edit-mode="isEditMode"
-            :is-batch-mode="isBatchMode"
-            :selected-ids="selectedIds"
-            :selected-category-ids="selectedCategoryIds"
-            @edit-category="handleEditCategory"
-            @delete-category="handleDeleteCategory"
-            @edit-bookmark="handleEditBookmark"
-            @delete-bookmark="handleDeleteBookmark"
-            @reorder-bookmarks="handleReorderBookmarks"
-            @toggle-selection="handleToggleSelection"
-            @toggle-category-selection="handleToggleCategorySelection"
-          />
+          <template v-if="displayedCategories.length > 0">
+            <CategorySection
+              v-for="category in displayedCategories"
+              :key="category.id"
+              :category="category"
+              :bookmarks="bookmarksByCategory[category.id] || []"
+              :is-edit-mode="isEditMode"
+              :is-batch-mode="isBatchMode"
+              :selected-ids="selectedIds"
+              :selected-category-ids="selectedCategoryIds"
+              @edit-category="handleEditCategory"
+              @delete-category="handleDeleteCategory"
+              @edit-bookmark="handleEditBookmark"
+              @delete-bookmark="handleDeleteBookmark"
+              @reorder-bookmarks="handleReorderBookmarks"
+              @toggle-selection="handleToggleSelection"
+              @toggle-category-selection="handleToggleCategorySelection"
+            />
+          </template>
           <div v-else class="empty-state">
             暂无可用分类，请先创建分类
           </div>
@@ -244,7 +247,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useAuth } from './composables/useAuth'
 import { useBookmarks } from './composables/useBookmarks'
 import { useBatchOperations } from './composables/useBatchOperations'
@@ -317,9 +320,15 @@ const batchOperationDialog = ref(null)
 const settingsPage = ref(null)
 const toast = ref(null)
 
+const ALL_CATEGORIES_ID = 'all'
+const SCROLL_OFFSET = 140
+const PROGRAMMATIC_SCROLL_TIMEOUT = 600
+let scrollResetTimer = null
+
 const isDesktop = ref(typeof window !== 'undefined' ? window.innerWidth >= 1025 : true)
 const sidebarOpen = ref(isDesktop.value)
-const selectedCategoryId = ref(null)
+const selectedCategoryId = ref(ALL_CATEGORIES_ID)
+const isScrollingProgrammatically = ref(false)
 
 const selectedIds = computed(() => getSelectedIds())
 const selectedCategoryIds = computed(() => getSelectedCategoryIds())
@@ -332,34 +341,112 @@ const bookmarkCountByCategory = computed(() => {
   return counts
 })
 
-const activeCategory = computed(() => {
-  if (!categories.value.length) {
-    return null
-  }
-  const current = categories.value.find(category => category.id === selectedCategoryId.value)
-  return current || categories.value[0]
+const totalBookmarkCount = computed(() => {
+  return categories.value.reduce((total, category) => {
+    return total + (bookmarkCountByCategory.value[category.id] || 0)
+  }, 0)
 })
 
-const displayedBookmarks = computed(() => {
-  const category = activeCategory.value
-  if (!category) return []
-  return bookmarksByCategory.value[category.id] || []
-})
+const displayedCategories = computed(() => categories.value)
 
 watch(categories, (newCategories) => {
   if (!newCategories.length) {
-    selectedCategoryId.value = null
+    selectedCategoryId.value = ALL_CATEGORIES_ID
     return
   }
-  if (!selectedCategoryId.value || !newCategories.some(category => category.id === selectedCategoryId.value)) {
-    selectedCategoryId.value = newCategories[0].id
+  // 如果当前选中的分类已被删除，回到"全部"
+  if (selectedCategoryId.value !== ALL_CATEGORIES_ID && !newCategories.some(category => category.id === selectedCategoryId.value)) {
+    selectedCategoryId.value = ALL_CATEGORIES_ID
   }
+
+  nextTick(() => {
+    updateActiveCategoryFromScroll()
+  })
 }, { immediate: true })
+
+const setProgrammaticScroll = () => {
+  isScrollingProgrammatically.value = true
+  if (scrollResetTimer) clearTimeout(scrollResetTimer)
+  scrollResetTimer = setTimeout(() => {
+    isScrollingProgrammatically.value = false
+  }, PROGRAMMATIC_SCROLL_TIMEOUT)
+}
+
+const getScrollOffset = () => {
+  if (typeof window === 'undefined') return SCROLL_OFFSET
+  const header = document.querySelector('.app-header')
+  return header ? header.offsetHeight + 24 : SCROLL_OFFSET
+}
+
+const scrollToTop = () => {
+  if (typeof window === 'undefined') return
+  setProgrammaticScroll()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const scrollToCategory = (categoryId) => {
+  if (typeof window === 'undefined') return
+  const categoryElement = document.getElementById(`category-${categoryId}`)
+  if (!categoryElement) return
+
+  const offset = getScrollOffset()
+  const elementTop = categoryElement.getBoundingClientRect().top + window.pageYOffset
+  const targetTop = elementTop - offset
+
+  setProgrammaticScroll()
+  window.scrollTo({ top: targetTop, behavior: 'smooth' })
+}
+
+function updateActiveCategoryFromScroll() {
+  if (typeof window === 'undefined') return
+  if (isScrollingProgrammatically.value) return
+  if (!categories.value.length) return
+
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0
+  if (scrollY <= 80) {
+    if (selectedCategoryId.value !== ALL_CATEGORIES_ID) {
+      selectedCategoryId.value = ALL_CATEGORIES_ID
+    }
+    return
+  }
+
+  const offset = getScrollOffset()
+  let activeId = null
+
+  for (const category of categories.value) {
+    const element = document.getElementById(`category-${category.id}`)
+    if (!element) continue
+    const rect = element.getBoundingClientRect()
+
+    if (rect.top - offset <= 0) {
+      activeId = category.id
+    } else {
+      if (activeId === null) {
+        activeId = category.id
+      }
+      break
+    }
+  }
+
+  if (activeId === null && categories.value.length) {
+    activeId = categories.value[categories.value.length - 1].id
+  }
+
+  if (activeId !== null && selectedCategoryId.value !== activeId) {
+    selectedCategoryId.value = activeId
+  }
+}
 
 const handleSelectCategory = (categoryId) => {
   selectedCategoryId.value = categoryId
   if (!isDesktop.value) {
     sidebarOpen.value = false
+  }
+
+  if (categoryId === ALL_CATEGORIES_ID) {
+    scrollToTop()
+  } else {
+    setTimeout(() => scrollToCategory(categoryId), 100)
   }
 }
 
@@ -425,6 +512,16 @@ onMounted(async () => {
   }
   document.addEventListener('click', handleClickOutside)
   
+  // 监听窗口滚动，更新活动分类
+  let scrollTimeout = null
+  const handleScroll = () => {
+    if (scrollTimeout) clearTimeout(scrollTimeout)
+    scrollTimeout = setTimeout(() => {
+      updateActiveCategoryFromScroll()
+    }, 100)
+  }
+  window.addEventListener('scroll', handleScroll, { passive: true })
+  
   // 监听窗口大小变化
   window.addEventListener('resize', handleResize)
   handleResize()
@@ -432,7 +529,15 @@ onMounted(async () => {
   // 清理事件监听
   onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside)
+    window.removeEventListener('scroll', handleScroll)
     window.removeEventListener('resize', handleResize)
+    if (scrollResetTimer) clearTimeout(scrollResetTimer)
+    if (scrollTimeout) clearTimeout(scrollTimeout)
+  })
+  
+  // 初始化时调用一次滚动检测
+  nextTick(() => {
+    updateActiveCategoryFromScroll()
   })
 })
 
