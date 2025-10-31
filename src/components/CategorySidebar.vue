@@ -185,9 +185,12 @@ const isCategorySelected = (categoryId) =>
   position: sticky;
   top: 120px;
   height: calc(100vh - 140px);
-  transform: translateX(0);
   box-shadow: none;
   border-radius: var(--radius);
+}
+
+.category-sidebar.is-desktop.is-open {
+  transform: translateX(0);
 }
 
 .sidebar-inner {
