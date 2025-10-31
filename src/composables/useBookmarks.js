@@ -138,11 +138,16 @@ export function useBookmarks() {
     }
   }
   
-  const addCategory = async (name) => {
+  const addCategory = async (name, parentId = null) => {
     try {
+      const body = { name }
+      if (parentId !== null) {
+        body.parent_id = parentId
+      }
+      
       const response = await apiRequest('/api/categories', {
         method: 'POST',
-        body: JSON.stringify({ name })
+        body: JSON.stringify(body)
       })
       
       const result = await response.json()
@@ -150,7 +155,7 @@ export function useBookmarks() {
         await fetchData()
         return { success: true }
       }
-      return { success: false, error: '添加失败' }
+      return { success: false, error: result.error || '添加失败' }
     } catch (error) {
       if (error.message === 'Token expired') {
         return { success: false, error: '登录已过期，请重新登录' }
