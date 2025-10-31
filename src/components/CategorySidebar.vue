@@ -25,6 +25,26 @@
       <div v-if="!categories.length" class="sidebar-empty">暂无分类</div>
 
       <ul v-else class="category-list">
+        <!-- 全部书签选项 -->
+        <li
+          class="category-item category-all"
+          :class="{ active: selectedCategoryId === 'all' }"
+        >
+          <div class="category-main">
+            <button
+              type="button"
+              class="category-button"
+              @click="$emit('select', 'all')"
+            >
+              <span class="category-name">📚 全部书签</span>
+              <span class="category-count">
+                {{ totalBookmarkCount }}
+              </span>
+            </button>
+          </div>
+        </li>
+        
+        <!-- 分类列表 -->
         <li
           v-for="category in categories"
           :key="category.id"
@@ -98,8 +118,12 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  totalBookmarkCount: {
+    type: Number,
+    default: 0
+  },
   selectedCategoryId: {
-    type: [Number, null],
+    type: [Number, String, null],
     default: null
   },
   selectedCategoryIds: {
@@ -243,6 +267,16 @@ html.dark .category-item.active {
 
 .category-item.selected:not(.active) {
   background: rgba(99, 102, 241, 0.08);
+}
+
+.category-item.category-all {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.category-item.category-all .category-button {
+  font-weight: 600;
 }
 
 .category-item:hover {
