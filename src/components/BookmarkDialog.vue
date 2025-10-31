@@ -101,7 +101,7 @@ const form = ref({
   is_private: false
 })
 
-const open = (bookmark = null) => {
+const open = (bookmark = null, options = {}) => {
   if (bookmark) {
     isEdit.value = true
     editId.value = bookmark.id
@@ -116,12 +116,13 @@ const open = (bookmark = null) => {
   } else {
     isEdit.value = false
     editId.value = null
+    const presetCategoryId = options.categoryId ?? categories.value[0]?.id ?? ''
     form.value = {
       name: '',
       url: '',
       description: '',
       icon: '',
-      category_id: categories.value[0]?.id || '',
+      category_id: presetCategoryId,
       is_private: false
     }
   }

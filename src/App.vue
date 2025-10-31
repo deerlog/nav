@@ -164,6 +164,8 @@
           @toggle="sidebarOpen = !sidebarOpen"
           @select="handleSelectCategory"
           @toggle-category-selection="handleToggleCategorySelection"
+          @add-subcategory="handleAddSubcategory"
+          @add-bookmark="handleAddBookmarkToCategory"
           @edit-category="handleEditCategory"
           @delete-category="handleDeleteCategory"
         />
@@ -672,16 +674,25 @@ watch([categories, bookmarks], async () => {
   }
 })
 
-const handleAddCategory = async () => {
-  const name = await promptDialog.value.open('新建分类', '', '请输入分类名称')
+const handleAddCategory = async (parentId = null) => {
+  const title = parentId ? '新建子分类' : '新建分类'
+  const name = await promptDialog.value.open(title, '', '请输入分类名称')
   if (name) {
-    const result = await addCategory(name)
+    const result = await addCategory(name, parentId)
     if (result.success) {
       toastSuccess('分类添加成功')
     } else {
       toastError(result.error || '添加分类失败')
     }
   }
+}
+
+const handleAddSubcategory = async (parentCategory) => {
+  await handleAddCategory(parentCategory.id)
+}
+
+const handleAddBookmarkToCategory = (categoryId) => {
+  bookmarkDialog.value.open(null, { categoryId })
 }
 
 const handleEditCategory = async (category) => {

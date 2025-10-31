@@ -367,24 +367,31 @@ const importHTML = async (text) => {
         const categoryName = child.textContent.trim()
         
         // 跳过空分类名和常见的顶级容器名（只在顶层跳过）
-        if (!categoryName || 
-            (depth === 0 && (
-              categoryName === '书签栏' || 
-              categoryName === 'Bookmarks' ||
-              categoryName === 'Bookmarks Bar' ||
-              categoryName === 'Bookmarks Toolbar' ||
-              categoryName === 'Bookmarks Menu' ||
-              categoryName === 'Other Bookmarks' ||
-              categoryName === '其他书签'
-            ))
-        ) {
+        const isTopLevelContainer = depth === 0 && (
+          categoryName === '书签栏' || 
+          categoryName === 'Bookmarks' ||
+          categoryName === 'Bookmarks Bar' ||
+          categoryName === 'Bookmarks Toolbar' ||
+          categoryName === 'Bookmarks Menu' ||
+          categoryName === 'Other Bookmarks' ||
+          categoryName === '其他书签'
+        )
+        
+        if (!categoryName || isTopLevelContainer) {
           // 即使跳过这个容器名，也要处理其内容
+          // 跳过顶层容器时，其子项应该作为根级别处理（depth=0, parentId=null）
           let dlElement = children[i + 1]
           while (dlElement && dlElement.tagName !== 'DL') {
             dlElement = dlElement.nextElementSibling
           }
           if (dlElement) {
-            parseBookmarkNode(dlElement, currentCategoryId, currentParentId, depth)
+            if (isTopLevelContainer) {
+              // 跳过顶层容器，子分类作为根分类
+              parseBookmarkNode(dlElement, null, null, 0)
+            } else {
+              // 跳过空分类名，保持当前上下文
+              parseBookmarkNode(dlElement, currentCategoryId, currentParentId, depth)
+            }
           }
           continue
         }
@@ -403,6 +410,8 @@ const importHTML = async (text) => {
           parent_id: currentParentId,
           depth: depth
         })
+        
+        console.log(`Parsed category: "${categoryName}" (depth=${depth}, parent_id=${currentParentId})`)
         
         // 找到该分类下的 DL 容器
         let dlElement = children[i + 1]

@@ -57,6 +57,8 @@
           :bookmark-count-by-category="bookmarkCountByCategory"
           @select="handleSelect"
           @toggle-category-selection="handleToggleCategorySelection"
+          @add-subcategory="handleAddSubcategory"
+          @add-bookmark="handleAddBookmark"
           @edit-category="handleEditCategory"
           @delete-category="handleDeleteCategory"
         />
@@ -113,6 +115,8 @@ const emit = defineEmits([
   'toggle',
   'select',
   'toggle-category-selection',
+  'add-subcategory',
+  'add-bookmark',
   'edit-category',
   'delete-category'
 ])
@@ -122,6 +126,8 @@ const categoryTree = computed(() => treeData.value.tree)
 
 const handleSelect = (id) => emit('select', id)
 const handleToggleCategorySelection = (id) => emit('toggle-category-selection', id)
+const handleAddSubcategory = (category) => emit('add-subcategory', category)
+const handleAddBookmark = (categoryId) => emit('add-bookmark', categoryId)
 const handleEditCategory = (category) => emit('edit-category', category)
 const handleDeleteCategory = (category) => emit('delete-category', category)
 </script>
