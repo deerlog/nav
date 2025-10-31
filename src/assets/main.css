@@ -6,6 +6,10 @@
 }
 
 :root {
+  /* Layout dimensions */
+  --app-header-height: 140px;
+  --app-sidebar-available-height: calc(100vh - var(--app-header-height));
+  
   /* 主色调  */
   --primary: #6366f1;
   --primary-dark: #4f46e5;
@@ -483,9 +487,10 @@ html.dark .app-header {
   gap: 0;
   max-width: 1600px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 0 1rem 2rem;
   align-items: flex-start;
   position: relative;
+  min-height: calc(100vh - var(--app-header-height, 140px));
 }
 
 .sidebar-backdrop {
@@ -500,6 +505,7 @@ html.dark .app-header {
 .bookmarks-area {
   flex: 1;
   min-width: 0;
+  padding-top: 2rem;
 }
 
 @media (min-width: 1025px) {
@@ -512,7 +518,11 @@ html.dark .app-header {
 
 @media (max-width: 1024px) {
   .main-layout {
-    padding: 1rem;
+    padding: 1rem 1rem 2rem;
+  }
+  
+  .bookmarks-area {
+    padding-top: 0;
   }
 }
 

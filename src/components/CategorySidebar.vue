@@ -183,10 +183,16 @@ const isCategorySelected = (categoryId) =>
 
 .category-sidebar.is-desktop {
   position: sticky;
-  top: 120px;
-  height: calc(100vh - 140px);
+  top: var(--app-header-height, 140px);
+  height: var(--app-sidebar-available-height, calc(100vh - var(--app-header-height, 140px)));
+  max-height: var(--app-sidebar-available-height, calc(100vh - var(--app-header-height, 140px)));
   box-shadow: none;
   border-radius: var(--radius);
+  align-self: stretch;
+  left: auto;
+  bottom: auto;
+  z-index: 10;
+  overflow: hidden;
 }
 
 .category-sidebar.is-desktop.is-open {

@@ -364,6 +364,13 @@ watch(categories, (newCategories) => {
   })
 }, { immediate: true })
 
+watch([showSearch, isEditMode, isBatchMode, isAuthenticated], () => {
+  if (typeof window === 'undefined') return
+  nextTick(() => {
+    updateLayoutOffsets()
+  })
+})
+
 const setProgrammaticScroll = () => {
   isScrollingProgrammatically.value = true
   if (scrollResetTimer) clearTimeout(scrollResetTimer)
@@ -450,6 +457,19 @@ const handleSelectCategory = (categoryId) => {
   }
 }
 
+const updateLayoutOffsets = () => {
+  if (typeof window === 'undefined') return
+  const header = document.querySelector('.app-header')
+  const headerHeight = header?.offsetHeight ?? 0
+  const root = document.documentElement
+  if (!root) return
+
+  root.style.setProperty('--app-header-height', `${headerHeight}px`)
+
+  const availableHeight = Math.max(window.innerHeight - headerHeight, 0)
+  root.style.setProperty('--app-sidebar-available-height', `${availableHeight}px`)
+}
+
 const handleResize = () => {
   if (typeof window === 'undefined') return
   const wasDesktop = isDesktop.value
@@ -459,6 +479,12 @@ const handleResize = () => {
     sidebarOpen.value = true
   } else if (wasDesktop && !isDesktop.value) {
     sidebarOpen.value = false
+  }
+
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => updateLayoutOffsets())
+  } else {
+    updateLayoutOffsets()
   }
 }
 
@@ -538,6 +564,11 @@ onMounted(async () => {
   // 初始化时调用一次滚动检测
   nextTick(() => {
     updateActiveCategoryFromScroll()
+  })
+  
+  // 初始化布局偏移量
+  nextTick(() => {
+    updateLayoutOffsets()
   })
 })
 
