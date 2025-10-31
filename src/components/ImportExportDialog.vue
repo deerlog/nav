@@ -151,7 +151,7 @@ const exportJSON = () => {
   importResult.value = { success: true, message: '✅ JSON 文件已导出' }
 }
 
-// 导出为 HTML (Netscape 书签格式)
+// 导出为 HTML (Netscape 书签格式，支持嵌套)
 const exportHTML = () => {
   let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
 <!-- This is an automatically generated file. -->
@@ -161,35 +161,66 @@ const exportHTML = () => {
 <DL><p>
 `
   
-  // 按分类组织
+  // 构建分类树
   const categoriesMap = {}
+  const rootCategories = []
+  
   categories.value.forEach(cat => {
-    categoriesMap[cat.id] = cat.name
+    categoriesMap[cat.id] = { ...cat, children: [] }
+  })
+  
+  categories.value.forEach(cat => {
+    if (cat.parent_id && categoriesMap[cat.parent_id]) {
+      categoriesMap[cat.parent_id].children.push(categoriesMap[cat.id])
+    } else {
+      rootCategories.push(categoriesMap[cat.id])
+    }
   })
   
   // 按分类分组书签
   const bookmarksByCategory = {}
   bookmarks.value.forEach(bookmark => {
-    const catName = categoriesMap[bookmark.category_id] || '未分类'
-    if (!bookmarksByCategory[catName]) {
-      bookmarksByCategory[catName] = []
+    if (!bookmarksByCategory[bookmark.category_id]) {
+      bookmarksByCategory[bookmark.category_id] = []
     }
-    bookmarksByCategory[catName].push(bookmark)
+    bookmarksByCategory[bookmark.category_id].push(bookmark)
   })
   
-  // 生成 HTML
-  Object.keys(bookmarksByCategory).forEach(catName => {
-    html += `    <DT><H3>${escapeHtml(catName)}</H3>\n`
-    html += `    <DL><p>\n`
-    bookmarksByCategory[catName].forEach(bookmark => {
+  // 递归生成 HTML
+  const generateCategoryHTML = (category, depth) => {
+    const indent = '    '.repeat(depth)
+    let output = `${indent}<DT><H3>${escapeHtml(category.name)}</H3>\n`
+    output += `${indent}<DL><p>\n`
+    
+    // 生成书签
+    const categoryBookmarks = bookmarksByCategory[category.id] || []
+    categoryBookmarks.forEach(bookmark => {
       const timestamp = Math.floor(new Date(bookmark.created_at).getTime() / 1000)
-      html += `        <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${timestamp}">${escapeHtml(bookmark.name)}</A>\n`
+      output += `${indent}    <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${timestamp}">${escapeHtml(bookmark.name)}</A>\n`
       if (bookmark.description) {
-        html += `        <DD>${escapeHtml(bookmark.description)}\n`
+        output += `${indent}    <DD>${escapeHtml(bookmark.description)}\n`
       }
     })
-    html += `    </DL><p>\n`
-  })
+    
+    // 递归生成子分类
+    if (category.children && category.children.length > 0) {
+      category.children
+        .sort((a, b) => a.position - b.position)
+        .forEach(child => {
+          output += generateCategoryHTML(child, depth + 1)
+        })
+    }
+    
+    output += `${indent}</DL><p>\n`
+    return output
+  }
+  
+  // 生成所有根分类
+  rootCategories
+    .sort((a, b) => a.position - b.position)
+    .forEach(category => {
+      html += generateCategoryHTML(category, 1)
+    })
   
   html += `</DL><p>`
   
@@ -319,12 +350,12 @@ const importHTML = async (text) => {
   
   const categories = []
   const bookmarks = []
-  let categoryPosition = 0
+  const categoryPositionMap = {} // 按 parent_id 分组的 position 计数器
   
   // 改进的递归解析函数 - 正确处理嵌套分类
-  const parseBookmarkNode = (node, currentCategoryId = null, depth = 0) => {
+  const parseBookmarkNode = (node, currentCategoryId = null, currentParentId = null, depth = 0) => {
     // 防止过深的递归
-    if (depth > 10) return
+    if (depth > 5) return
     
     const children = Array.from(node.children)
     
@@ -335,21 +366,42 @@ const importHTML = async (text) => {
       if (child.tagName === 'H3') {
         const categoryName = child.textContent.trim()
         
-        // 跳过空分类名和常见的顶级容器名
+        // 跳过空分类名和常见的顶级容器名（只在顶层跳过）
         if (!categoryName || 
-            categoryName === '书签栏' || 
-            categoryName === 'Bookmarks' ||
-            categoryName === 'Bookmarks Toolbar' ||
-            categoryName === 'Bookmarks Menu') {
+            (depth === 0 && (
+              categoryName === '书签栏' || 
+              categoryName === 'Bookmarks' ||
+              categoryName === 'Bookmarks Bar' ||
+              categoryName === 'Bookmarks Toolbar' ||
+              categoryName === 'Bookmarks Menu' ||
+              categoryName === 'Other Bookmarks' ||
+              categoryName === '其他书签'
+            ))
+        ) {
+          // 即使跳过这个容器名，也要处理其内容
+          let dlElement = children[i + 1]
+          while (dlElement && dlElement.tagName !== 'DL') {
+            dlElement = dlElement.nextElementSibling
+          }
+          if (dlElement) {
+            parseBookmarkNode(dlElement, currentCategoryId, currentParentId, depth)
+          }
           continue
         }
         
         // 创建新分类
         const categoryId = categories.length + 1
+        const parentKey = currentParentId || 'root'
+        if (!categoryPositionMap[parentKey]) {
+          categoryPositionMap[parentKey] = 0
+        }
+        
         categories.push({
           id: categoryId,
           name: categoryName,
-          position: categoryPosition++
+          position: categoryPositionMap[parentKey]++,
+          parent_id: currentParentId,
+          depth: depth
         })
         
         // 找到该分类下的 DL 容器
@@ -359,8 +411,8 @@ const importHTML = async (text) => {
         }
         
         if (dlElement) {
-          // 递归处理该分类下的内容，传递新的categoryId
-          parseBookmarkNode(dlElement, categoryId, depth + 1)
+          // 递归处理该分类下的内容，传递新的categoryId作为书签的分类和嵌套分类的父ID
+          parseBookmarkNode(dlElement, categoryId, categoryId, depth + 1)
         }
       }
       // 找到书签链接 (DT > A)
@@ -394,19 +446,19 @@ const importHTML = async (text) => {
         }
         // 检查DT下是否有H3（嵌套分类）
         else if (child.querySelector('H3')) {
-          // 递归处理DT，但不传递currentCategoryId，让H3创建新分类
-          parseBookmarkNode(child, null, depth)
+          // 递归处理DT，保持当前的 currentCategoryId 和 currentParentId
+          parseBookmarkNode(child, currentCategoryId, currentParentId, depth)
         }
       }
       // 递归处理 DL 容器
       else if (child.tagName === 'DL') {
-        parseBookmarkNode(child, currentCategoryId, depth + 1)
+        parseBookmarkNode(child, currentCategoryId, currentParentId, depth)
       }
     }
   }
   
   // 从 body 开始解析
-  parseBookmarkNode(doc.body)
+  parseBookmarkNode(doc.body, null, null, 0)
   
   console.log(`Parsed HTML: ${categories.length} categories, ${bookmarks.length} bookmarks`)
   
