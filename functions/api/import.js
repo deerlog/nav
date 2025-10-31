@@ -24,21 +24,43 @@ export async function onRequestPost(context) {
     
     // 1. 批量获取现有分类（一次查询代替N次查询）
     const existingCategories = await env.DB.prepare(
-      'SELECT id, name FROM categories'
+      'SELECT id, name, parent_id FROM categories'
     ).all();
     
     const existingCategoryMap = {};
     existingCategories.results.forEach(cat => {
-      existingCategoryMap[cat.name] = cat.id;
+      const key = cat.parent_id ? `${cat.name}|${cat.parent_id}` : cat.name;
+      existingCategoryMap[key] = cat.id;
     });
     
-    // 2. 批量导入分类
+    // 2. 批量导入分类 - 使用深度优先顺序处理嵌套结构
     const categoryMapping = {}; // 旧ID -> 新ID 的映射
     
-    for (const category of categories) {
-      if (existingCategoryMap[category.name]) {
+    // 按depth排序确保父分类先创建
+    const sortedCategories = [...categories].sort((a, b) => (a.depth || 0) - (b.depth || 0));
+    
+    for (const category of sortedCategories) {
+      // 处理parent_id映射
+      let newParentId = null;
+      if (category.parent_id) {
+        newParentId = categoryMapping[category.parent_id] || null;
+        if (!newParentId) {
+          console.error('Parent category not found for:', category.name, 'parent_id:', category.parent_id);
+          skippedCategories++;
+          skippedItems.push({
+            type: 'category',
+            name: category.name,
+            reason: '父分类不存在'
+          });
+          continue;
+        }
+      }
+      
+      // 检查分类是否已存在（考虑parent_id）
+      const lookupKey = newParentId ? `${category.name}|${newParentId}` : category.name;
+      if (existingCategoryMap[lookupKey]) {
         // 分类已存在
-        categoryMapping[category.id] = existingCategoryMap[category.name];
+        categoryMapping[category.id] = existingCategoryMap[lookupKey];
         skippedCategories++;
         skippedItems.push({
           type: 'category',
@@ -48,12 +70,13 @@ export async function onRequestPost(context) {
       } else {
         try {
           // 创建新分类
+          const depth = category.depth || 0;
           const result = await env.DB.prepare(
-            'INSERT INTO categories (name, position) VALUES (?, ?)'
-          ).bind(category.name, category.position || 0).run();
+            'INSERT INTO categories (name, position, parent_id, depth) VALUES (?, ?, ?, ?)'
+          ).bind(category.name, category.position || 0, newParentId, depth).run();
           
           categoryMapping[category.id] = result.meta.last_row_id;
-          existingCategoryMap[category.name] = result.meta.last_row_id;
+          existingCategoryMap[lookupKey] = result.meta.last_row_id;
           importedCategories++;
         } catch (error) {
           console.error('Failed to import category:', category.name, error);
