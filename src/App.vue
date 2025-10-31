@@ -695,6 +695,22 @@ const handleAddBookmarkToCategory = (categoryId) => {
   bookmarkDialog.value.open(null, { categoryId })
 }
 
+// Get current context category ID (for adding bookmarks with proper default)
+const getCurrentContextCategoryId = () => {
+  // If a specific category is selected (not "all"), attempt to use it
+  if (selectedCategoryId.value !== ALL_CATEGORIES_ID && selectedCategoryId.value !== null && selectedCategoryId.value !== undefined) {
+    if (typeof selectedCategoryId.value === 'number') {
+      return selectedCategoryId.value
+    }
+    const parsed = Number.parseInt(selectedCategoryId.value, 10)
+    if (Number.isInteger(parsed)) {
+      return parsed
+    }
+  }
+  // Otherwise return null to use the first category
+  return null
+}
+
 const handleEditCategory = async (category) => {
   const name = await promptDialog.value.open('编辑分类', category.name, '请输入新的分类名称')
   if (name && name !== category.name) {
@@ -889,7 +905,12 @@ const handleEditFooter = async () => {
 }
 
 const handleAddBookmark = () => {
-  bookmarkDialog.value.open()
+  const currentCategoryId = getCurrentContextCategoryId()
+  if (Number.isInteger(currentCategoryId)) {
+    bookmarkDialog.value.open(null, { categoryId: currentCategoryId })
+  } else {
+    bookmarkDialog.value.open()
+  }
 }
 
 const handleBatchDeleteCategories = async () => {

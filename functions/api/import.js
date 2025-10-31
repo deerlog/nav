@@ -24,13 +24,15 @@ export async function onRequestPost(context) {
     
     // 1. 批量获取现有分类（一次查询代替N次查询）
     const existingCategories = await env.DB.prepare(
-      'SELECT id, name, parent_id FROM categories'
+      'SELECT id, name, parent_id, depth FROM categories'
     ).all();
     
     const existingCategoryMap = {};
+    const existingDepthMap = {};
     existingCategories.results.forEach(cat => {
       const key = cat.parent_id ? `${cat.name}|${cat.parent_id}` : cat.name;
       existingCategoryMap[key] = cat.id;
+      existingDepthMap[cat.id] = typeof cat.depth === 'number' ? cat.depth : 0;
     });
     
     // 2. 批量导入分类 - 使用深度优先顺序处理嵌套结构
@@ -45,38 +47,65 @@ export async function onRequestPost(context) {
       if (category.parent_id) {
         newParentId = categoryMapping[category.parent_id] || null;
         if (!newParentId) {
-          console.error('Parent category not found for:', category.name, 'parent_id:', category.parent_id);
+          console.error('Parent category not found for:', category.name, 'parent_id:', category.parent_id, 'Available mappings:', Object.keys(categoryMapping));
           skippedCategories++;
           skippedItems.push({
             type: 'category',
             name: category.name,
-            reason: '父分类不存在'
+            reason: `父分类不存在 (parent_id: ${category.parent_id})`
           });
           continue;
         }
       }
       
-      // 检查分类是否已存在（考虑parent_id）
-      const lookupKey = newParentId ? `${category.name}|${newParentId}` : category.name;
-      if (existingCategoryMap[lookupKey]) {
-        // 分类已存在
-        categoryMapping[category.id] = existingCategoryMap[lookupKey];
+      console.log(`Processing category: "${category.name}", parent_id: ${category.parent_id}, newParentId: ${newParentId}, depth: ${category.depth}`);
+      
+      const parentDepth = newParentId ? (existingDepthMap[newParentId] ?? 0) : 0;
+      const calculatedDepth = newParentId ? parentDepth + 1 : 0;
+      
+      if (calculatedDepth > 5) {
+        console.error(`Skipping category "${category.name}" because calculated depth ${calculatedDepth} exceeds maximum allowed.`);
         skippedCategories++;
         skippedItems.push({
           type: 'category',
           name: category.name,
-          reason: '分类已存在'
+          reason: '超过最大嵌套深度限制 (5)'
         });
+        continue;
+      }
+      
+      // 检查分类是否已存在（考虑parent_id）
+      const lookupKey = newParentId ? `${category.name}|${newParentId}` : category.name;
+      if (existingCategoryMap[lookupKey]) {
+        // 分类已存在，使用现有的ID
+        const existingId = existingCategoryMap[lookupKey];
+        categoryMapping[category.id] = existingId;
+        console.log(`Category "${category.name}" already exists with ID ${existingId}`);
+        skippedCategories++;
+        const existingDepth = existingDepthMap[existingId];
+        const reason = newParentId 
+          ? `分类已存在 (父分类: ${newParentId}, depth: ${existingDepth})`
+          : '分类已存在';
+        skippedItems.push({
+          type: 'category',
+          name: category.name,
+          reason: reason
+        });
+        if (typeof existingDepthMap[existingId] !== 'number') {
+          existingDepthMap[existingId] = calculatedDepth;
+        }
       } else {
         try {
           // 创建新分类
-          const depth = category.depth || 0;
+          const position = typeof category.position === 'number' ? category.position : 0;
           const result = await env.DB.prepare(
             'INSERT INTO categories (name, position, parent_id, depth) VALUES (?, ?, ?, ?)'
-          ).bind(category.name, category.position || 0, newParentId, depth).run();
+          ).bind(category.name, position, newParentId, calculatedDepth).run();
           
-          categoryMapping[category.id] = result.meta.last_row_id;
-          existingCategoryMap[lookupKey] = result.meta.last_row_id;
+          const newCategoryId = result.meta.last_row_id;
+          categoryMapping[category.id] = newCategoryId;
+          existingCategoryMap[lookupKey] = newCategoryId;
+          existingDepthMap[newCategoryId] = calculatedDepth;
           importedCategories++;
         } catch (error) {
           console.error('Failed to import category:', category.name, error);
@@ -117,12 +146,12 @@ export async function onRequestPost(context) {
       const newCategoryId = categoryMapping[bookmark.category_id];
       
       if (!newCategoryId) {
-        console.error('Category mapping not found for bookmark:', bookmark.name, 'category_id:', bookmark.category_id);
+        console.error('Category mapping not found for bookmark:', bookmark.name, 'category_id:', bookmark.category_id, 'Available mappings:', Object.keys(categoryMapping).length);
         skippedBookmarks++;
         skippedItems.push({
           type: 'bookmark',
           name: bookmark.name,
-          reason: '分类不存在'
+          reason: `分类映射不存在 (category_id: ${bookmark.category_id})`
         });
         continue;
       }

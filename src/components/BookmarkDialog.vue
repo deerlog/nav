@@ -44,8 +44,8 @@
             <label>分类 *</label>
             <select v-model="form.category_id">
               <option value="">请选择分类</option>
-              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-                {{ cat.name }}
+              <option v-for="cat in categoryOptions" :key="cat.id" :value="cat.id">
+                {{ cat.displayName }}
               </option>
             </select>
           </div>
@@ -82,6 +82,7 @@
 import { ref, computed } from 'vue'
 import { useBookmarks } from '../composables/useBookmarks'
 import { useToast } from '../composables/useToast'
+import { buildCategoryTree, getCategoryPath } from '../utils/categoryTree'
 
 const { categories, addBookmark, updateBookmark } = useBookmarks()
 const { success: toastSuccess, error: toastError } = useToast()
@@ -99,6 +100,17 @@ const form = ref({
   icon: '',
   category_id: '',
   is_private: false
+})
+
+const categoryOptions = computed(() => {
+  if (!categories.value.length) {
+    return []
+  }
+  const { flatList, map } = buildCategoryTree(categories.value)
+  return flatList.map(cat => ({
+    id: cat.id,
+    displayName: getCategoryPath(cat.id, map).map(item => item.name).join('/')
+  }))
 })
 
 const open = (bookmark = null, options = {}) => {
@@ -180,9 +192,24 @@ const handleSubmit = async () => {
     return
   }
   
+  const parsedCategoryId = typeof form.value.category_id === 'number'
+    ? form.value.category_id
+    : Number.parseInt(form.value.category_id, 10)
+  
+  if (!Number.isInteger(parsedCategoryId) || parsedCategoryId <= 0) {
+    error.value = '请选择有效的分类'
+    return
+  }
+  
+  const payload = {
+    ...form.value,
+    category_id: parsedCategoryId,
+    is_private: !!form.value.is_private
+  }
+  
   const result = isEdit.value
-    ? await updateBookmark(editId.value, form.value)
-    : await addBookmark(form.value)
+    ? await updateBookmark(editId.value, payload)
+    : await addBookmark(payload)
   
   if (result.success) {
     toastSuccess(isEdit.value ? '书签已更新' : '书签已添加')
