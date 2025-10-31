@@ -276,7 +276,7 @@ html.dark .app-header {
 }
 
 .sidebar-toggle-btn {
-  display: none;
+  display: inline-flex;
   background: transparent;
   border: none;
   padding: 0.5rem;
@@ -297,12 +297,6 @@ html.dark .app-header {
   width: 24px;
   height: 24px;
   stroke-width: 2;
-}
-
-@media (max-width: 1024px) {
-  .sidebar-toggle-btn {
-    display: flex;
-  }
 }
 
 .app-title {
