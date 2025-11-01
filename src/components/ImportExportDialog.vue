@@ -351,6 +351,21 @@ const importHTML = async (text) => {
   const categories = []
   const bookmarks = []
   const categoryPositionMap = {} // 按 parent_id 分组的 position 计数器
+  const processedDLs = new WeakSet()
+
+  const findDirectChild = (element, tagName) => {
+    return Array.from(element.children).find(child => child.tagName === tagName)
+  }
+
+  const findNextDL = (element) => {
+    if (!element) return null
+    if (element.tagName === 'DL') return element
+    let sibling = element.nextElementSibling
+    while (sibling && sibling.tagName !== 'DL') {
+      sibling = sibling.nextElementSibling
+    }
+    return sibling && sibling.tagName === 'DL' ? sibling : null
+  }
   
   // 改进的递归解析函数 - 正确处理嵌套分类
   const parseBookmarkNode = (node, currentCategoryId = null, currentParentId = null, depth = 0) => {
@@ -374,12 +389,9 @@ const importHTML = async (text) => {
         )
         
         if (!categoryName || isRootContainer) {
-          // 跳过根容器，处理其内容
-          let dlElement = children[i + 1]
-          while (dlElement && dlElement.tagName !== 'DL') {
-            dlElement = dlElement.nextElementSibling
-          }
+          const dlElement = findNextDL(child)
           if (dlElement) {
+            processedDLs.add(dlElement)
             if (isRootContainer) {
               // 跳过根容器，子项作为根级别处理
               parseBookmarkNode(dlElement, null, null, 0)
@@ -408,21 +420,72 @@ const importHTML = async (text) => {
         
         console.log(`Parsed category: "${categoryName}" (depth=${depth}, parent_id=${currentParentId})`)
         
-        // 找到该分类下的 DL 容器
-        let dlElement = children[i + 1]
-        while (dlElement && dlElement.tagName !== 'DL') {
-          dlElement = dlElement.nextElementSibling
-        }
-        
+        const dlElement = findNextDL(child)
         if (dlElement) {
+          processedDLs.add(dlElement)
           // 递归处理该分类下的内容，传递新的categoryId作为书签的分类和嵌套分类的父ID
           parseBookmarkNode(dlElement, categoryId, categoryId, depth + 1)
         }
       }
       // 找到书签链接 (DT > A)
       else if (child.tagName === 'DT') {
-        // 检查DT下是否有A标签（书签）
-        const linkElement = child.querySelector('A')
+        const directChildren = Array.from(child.children)
+        const folderElement = directChildren.find(el => el.tagName === 'H3')
+
+        if (folderElement) {
+          const categoryName = folderElement.textContent.trim()
+          const normalizedName = categoryName.toLowerCase()
+
+          const isRootContainer = depth === 0 && (
+            normalizedName === 'bookmarks' ||
+            normalizedName === '书签'
+          )
+
+          if (!categoryName || isRootContainer) {
+            const dlElement = findDirectChild(child, 'DL') || findNextDL(folderElement) || findNextDL(child)
+            if (dlElement) {
+              processedDLs.add(dlElement)
+              if (isRootContainer) {
+                parseBookmarkNode(dlElement, null, null, 0)
+              } else {
+                parseBookmarkNode(dlElement, currentCategoryId, currentParentId, depth)
+              }
+            }
+            continue
+          }
+
+          const categoryId = categories.length + 1
+          const parentKey = currentParentId || 'root'
+          if (!categoryPositionMap[parentKey]) {
+            categoryPositionMap[parentKey] = 0
+          }
+
+          categories.push({
+            id: categoryId,
+            name: categoryName,
+            position: categoryPositionMap[parentKey]++,
+            parent_id: currentParentId,
+            depth: depth
+          })
+
+          console.log(`Parsed category: "${categoryName}" (depth=${depth}, parent_id=${currentParentId})`)
+
+          const dlElement = findDirectChild(child, 'DL') || findNextDL(folderElement) || findNextDL(child)
+          if (dlElement) {
+            processedDLs.add(dlElement)
+            parseBookmarkNode(dlElement, categoryId, categoryId, depth + 1)
+          }
+          continue
+        }
+
+        let linkElement = directChildren.find(el => el.tagName === 'A')
+        if (!linkElement) {
+          const fallbackLink = child.querySelector('A')
+          if (fallbackLink && fallbackLink.closest('DT') === child) {
+            linkElement = fallbackLink
+          }
+        }
+
         if (linkElement) {
           const url = linkElement.getAttribute('HREF') || linkElement.getAttribute('href')
           const name = linkElement.textContent.trim()
@@ -456,9 +519,9 @@ const importHTML = async (text) => {
             
             // 查找描述（在下一个DD元素中）
             let description = ''
-            const nextEl = children[i + 1]
-            if (nextEl && nextEl.tagName === 'DD') {
-              description = nextEl.textContent.trim()
+            const descriptionNode = child.nextElementSibling
+            if (descriptionNode && descriptionNode.tagName === 'DD') {
+              description = descriptionNode.textContent.trim()
             }
             
             bookmarks.push({
@@ -472,15 +535,16 @@ const importHTML = async (text) => {
               is_private: 0
             })
           }
-        }
-        // 检查DT下是否有H3（嵌套分类）
-        else if (child.querySelector('H3')) {
+        } else if (child.querySelector('H3')) {
           // 递归处理DT，保持当前的 currentCategoryId 和 currentParentId
           parseBookmarkNode(child, currentCategoryId, currentParentId, depth)
         }
       }
       // 递归处理 DL 容器
       else if (child.tagName === 'DL') {
+        if (processedDLs.has(child)) {
+          continue
+        }
         parseBookmarkNode(child, currentCategoryId, currentParentId, depth)
       }
     }
