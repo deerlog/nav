@@ -365,28 +365,23 @@ const importHTML = async (text) => {
       // 找到分类标题 (H3)
       if (child.tagName === 'H3') {
         const categoryName = child.textContent.trim()
+        const normalizedName = categoryName.toLowerCase()
         
-        // 跳过空分类名和常见的顶级容器名（只在顶层跳过）
-        const isTopLevelContainer = depth === 0 && (
-          categoryName === '书签栏' || 
-          categoryName === 'Bookmarks' ||
-          categoryName === 'Bookmarks Bar' ||
-          categoryName === 'Bookmarks Toolbar' ||
-          categoryName === 'Bookmarks Menu' ||
-          categoryName === 'Other Bookmarks' ||
-          categoryName === '其他书签'
+        // 只跳过最顶层的通用根容器
+        const isRootContainer = depth === 0 && (
+          normalizedName === 'bookmarks' ||
+          normalizedName === '书签'
         )
         
-        if (!categoryName || isTopLevelContainer) {
-          // 即使跳过这个容器名，也要处理其内容
-          // 跳过顶层容器时，其子项应该作为根级别处理（depth=0, parentId=null）
+        if (!categoryName || isRootContainer) {
+          // 跳过根容器，处理其内容
           let dlElement = children[i + 1]
           while (dlElement && dlElement.tagName !== 'DL') {
             dlElement = dlElement.nextElementSibling
           }
           if (dlElement) {
-            if (isTopLevelContainer) {
-              // 跳过顶层容器，子分类作为根分类
+            if (isRootContainer) {
+              // 跳过根容器，子项作为根级别处理
               parseBookmarkNode(dlElement, null, null, 0)
             } else {
               // 跳过空分类名，保持当前上下文
@@ -396,7 +391,7 @@ const importHTML = async (text) => {
           continue
         }
         
-        // 创建新分类
+        // 创建新分类（包括"书签栏"、"其他书签"等都作为正常分类处理）
         const categoryId = categories.length + 1
         const parentKey = currentParentId || 'root'
         if (!categoryPositionMap[parentKey]) {
@@ -428,12 +423,37 @@ const importHTML = async (text) => {
       else if (child.tagName === 'DT') {
         // 检查DT下是否有A标签（书签）
         const linkElement = child.querySelector('A')
-        if (linkElement && currentCategoryId) {
+        if (linkElement) {
           const url = linkElement.getAttribute('HREF') || linkElement.getAttribute('href')
           const name = linkElement.textContent.trim()
           
           // 只导入http/https链接，跳过javascript:等
           if (url && name && (url.startsWith('http://') || url.startsWith('https://'))) {
+            // 如果没有当前分类，创建一个默认的"导入的书签"分类
+            let targetCategoryId = currentCategoryId
+            if (!targetCategoryId) {
+              // 查找或创建默认分类
+              let defaultCategory = categories.find(c => c.name === '导入的书签' && !c.parent_id)
+              if (!defaultCategory) {
+                const categoryId = categories.length + 1
+                const parentKey = 'root'
+                if (!categoryPositionMap[parentKey]) {
+                  categoryPositionMap[parentKey] = 0
+                }
+                categories.push({
+                  id: categoryId,
+                  name: '导入的书签',
+                  position: categoryPositionMap[parentKey]++,
+                  parent_id: null,
+                  depth: 0
+                })
+                targetCategoryId = categoryId
+                console.log('Created default category "导入的书签" for orphan bookmarks')
+              } else {
+                targetCategoryId = defaultCategory.id
+              }
+            }
+            
             // 查找描述（在下一个DD元素中）
             let description = ''
             const nextEl = children[i + 1]
@@ -447,8 +467,8 @@ const importHTML = async (text) => {
               url: url,
               description: description || null,
               icon: null,
-              category_id: currentCategoryId,
-              position: bookmarks.filter(b => b.category_id === currentCategoryId).length,
+              category_id: targetCategoryId,
+              position: bookmarks.filter(b => b.category_id === targetCategoryId).length,
               is_private: 0
             })
           }
